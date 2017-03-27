@@ -6,8 +6,11 @@ Licensed under the Eiffel Forum License 2.
 
 This module relies on omdbapi.com
 """
-from __future__ import unicode_literals, absolute_import, print_function, division
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+
 import requests
+
 import sopel.module
 from sopel.logger import get_logger
 
@@ -15,11 +18,14 @@ LOGGER = get_logger(__name__)
 
 
 @sopel.module.commands('movie', 'imdb')
-@sopel.module.example('.movie ThisTitleDoesNotExist', '[MOVIE] Movie not found!')
-@sopel.module.example('.movie Citizen Kane', '[MOVIE] Title: Citizen Kane | Year: 1941 | Rating: 8.4 | Genre: Drama, Mystery | IMDB Link: http://imdb.com/title/tt0033467')
+@sopel.module.example('.movie ThisTitleDoesNotExist',
+                      '[MOVIE] Movie not found!')
+@sopel.module.example('.movie Citizen Kane',
+                      '[MOVIE] Title: Citizen Kane | Year: 1941 | Rating: 8.4 | Genre: Drama, Mystery | IMDB Link: http://imdb.com/title/tt0033467')
 def movie(bot, trigger):
     """
-    Returns some information about a movie, like Title, Year, Rating, Genre and IMDB Link.
+    Returns some information about a movie,
+    like Title, Year, Rating, Genre and IMDB Link.
     """
     if not trigger.group(2):
         return

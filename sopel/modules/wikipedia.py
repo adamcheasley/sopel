@@ -1,14 +1,19 @@
 # coding=utf-8
 # Copyright 2013 Elsie Powell - embolalia.com
 # Licensed under the Eiffel Forum License 2.
-from __future__ import unicode_literals, absolute_import, print_function, division
-from sopel import web, tools
-from sopel.config.types import StaticSection, ValidatedAttribute
-from sopel.module import NOLIMIT, commands, example, rule
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+
 import json
 import re
-
 import sys
+
+import requests
+
+from sopel import tools, web
+from sopel.config.types import StaticSection, ValidatedAttribute
+from sopel.module import NOLIMIT, commands, example, rule
+
 if sys.version_info.major < 3:
     from urlparse import unquote as _unquote
     unquote = lambda s: _unquote(s.encode('utf-8')).decode('utf-8')
@@ -50,7 +55,7 @@ def mw_search(server, query, num):
                   '&list=search&srlimit=%d&srprop=timestamp&srwhat=text'
                   '&srsearch=') % (server, num)
     search_url += query
-    query = json.loads(web.get(search_url))
+    query = requests.get(search_url).json()
     if 'query' in query:
         query = query['query']['search']
         return [r['title'] for r in query]
@@ -77,7 +82,7 @@ def mw_snippet(server, query):
                    '&action=query&prop=extracts&exintro&explaintext'
                    '&exchars=300&redirects&titles=')
     snippet_url += query
-    snippet = json.loads(web.get(snippet_url))
+    snippet = requests.get(snippet_url).json()
     snippet = snippet['query']['pages']
 
     # For some reason, the API gives the page *number* as the key, so we just
