@@ -67,6 +67,8 @@ def say_snippet(bot, server, query, show_url=True):
     page_name = query.replace('_', ' ')
     query = query.replace(' ', '_')
     snippet = mw_snippet(server, query)
+    if snippet is None:
+        return None
     msg = '[WIKIPEDIA] {} | "{}"'.format(page_name, snippet)
     if show_url:
         msg = msg + ' | https://{}/wiki/{}'.format(server, query)
@@ -82,14 +84,20 @@ def mw_snippet(server, query):
                    '&action=query&prop=extracts&exintro&explaintext'
                    '&exchars=300&redirects&titles=')
     snippet_url += query
-    snippet = requests.get(snippet_url).json()
+    try:
+        snippet = requests.get(snippet_url).json()
+    except:
+        return None
     snippet = snippet['query']['pages']
 
     # For some reason, the API gives the page *number* as the key, so we just
     # grab the first page number in the results.
     snippet = snippet[list(snippet.keys())[0]]
 
-    return snippet['extract']
+    try:
+        return snippet['extract']
+    except KeyError:
+        return None
 
 
 @rule('.*/([a-z]+\.wikipedia.org)/wiki/([^ ]+).*')

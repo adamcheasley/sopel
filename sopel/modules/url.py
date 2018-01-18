@@ -127,7 +127,13 @@ def title_auto(bot, trigger):
     if len(urls) == 0:
         return
 
-    results = process_urls(bot, trigger, urls)
+    clean_urls = []
+    for url in urls:
+        if 'localhost' in url:
+            continue
+        else:
+            clean_urls.append(url)
+    results = process_urls(bot, trigger, clean_urls)
     bot.memory['last_seen_url'][trigger.sender] = urls[-1]
 
     for title, domain in results[:4]:
@@ -145,7 +151,6 @@ def process_urls(bot, trigger, urls):
     Return a list of (title, hostname) tuples for each URL which is not handled by
     another module.
     """
-
     results = []
     for url in urls:
         if not url.startswith(bot.config.url.exclusion_char):
@@ -159,7 +164,10 @@ def process_urls(bot, trigger, urls):
             if matched:
                 continue
             # Finally, actually show the URL
-            title = find_title(url, verify=bot.config.core.verify_ssl)
+            try:
+                title = find_title(url, verify=bot.config.core.verify_ssl)
+            except:
+                continue
             if title:
                 results.append((title, get_hostname(url)))
     return results

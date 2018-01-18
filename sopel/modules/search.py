@@ -5,6 +5,7 @@
 from __future__ import unicode_literals, absolute_import, print_function, division
 
 import re
+import requests
 from sopel import web
 from sopel.module import commands, example
 import json
@@ -28,7 +29,7 @@ r_bing = re.compile(r'<h3><a href="([^"]+)"')
 
 def bing_search(query, lang='en-GB'):
     base = 'http://www.bing.com/search?mkt=%s&q=' % lang
-    bytes = web.get(base + query)
+    bytes = requests.get(base + query).text
     m = r_bing.search(bytes)
     if m:
         return m.group(1)
@@ -39,7 +40,7 @@ r_duck = re.compile(r'nofollow" class="[^"]+" href="(?!https?:\/\/r\.search\.yah
 def duck_search(query):
     query = query.replace('!', '')
     uri = 'http://duckduckgo.com/html/?q=%s&kl=uk-en' % query
-    bytes = web.get(uri)
+    bytes = requests.get(uri).text
     if 'web-result' in bytes:  # filter out the adds on top of the page
         bytes = bytes.split('web-result')[1]
     m = r_duck.search(bytes)
@@ -60,7 +61,7 @@ def duck_api(query):
     # So in order to always get a JSON response back the query is urlencoded
     query = quote_plus(query)
     uri = 'http://api.duckduckgo.com/?q=%s&format=json&no_html=1&no_redirect=1' % query
-    results = json.loads(web.get(uri))
+    results = requests.get(uri).json()
     if results['Redirect']:
         return results['Redirect']
     else:
