@@ -71,9 +71,6 @@ class ExpressionEvaluator:
                     "Time for evaluating expression ran out.")
             return self.unary_ops[type(node.op)](operand)
 
-        raise ExpressionEvaluator.Error(
-            "Ast.Node '%s' not implemented." % (type(node).__name__,))
-
 
 def guarded_mul(left, right):
     """Decorate a function to raise an error for values > limit."""
