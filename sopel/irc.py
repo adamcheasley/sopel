@@ -173,7 +173,7 @@ class Bot(asynchat.async_chat):
             asyncore.loop()
         except KeyboardInterrupt:
             print('KeyboardInterrupt')
-            self.quit('KeyboardInterrupt')
+            self.quit('Bye!')
 
     def quit(self, message):
         """Disconnect from IRC and close the bot."""
