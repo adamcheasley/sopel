@@ -1,23 +1,14 @@
 # coding=utf-8
 # Copyright 2013 Elsie Powell - embolalia.com
 # Licensed under the Eiffel Forum License 2.
-<<<<<<< HEAD
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-import json
-=======
-from __future__ import unicode_literals, absolute_import, print_function, division
-
-from sopel.config.types import StaticSection, ValidatedAttribute
-from sopel.module import NOLIMIT, commands, example, rule
-from requests import get
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
 import re
 import sys
 
 import requests
-
+from requests import get
 from sopel import tools, web
 from sopel.config.types import StaticSection, ValidatedAttribute
 from sopel.module import NOLIMIT, commands, example, rule
@@ -73,11 +64,7 @@ def mw_search(server, query, num):
                   '&list=search&srlimit=%d&srprop=timestamp&srwhat=text'
                   '&srsearch=') % (server, num)
     search_url += query
-<<<<<<< HEAD
-    query = requests.get(search_url).json()
-=======
     query = get(search_url).json()
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     if 'query' in query:
         query = query['query']['search']
         return [r['title'] for r in query]
@@ -87,12 +74,6 @@ def mw_search(server, query, num):
 
 def say_snippet(bot, trigger, server, query, show_url=True):
     page_name = query.replace('_', ' ')
-<<<<<<< HEAD
-    query = query.replace(' ', '_')
-    snippet = mw_snippet(server, query)
-    if snippet is None:
-        return None
-=======
     query = quote(query.replace(' ', '_'))
     try:
         snippet = mw_snippet(server, query)
@@ -100,7 +81,6 @@ def say_snippet(bot, trigger, server, query, show_url=True):
         if show_url:
             bot.say("[WIKIPEDIA] Error fetching snippet for \"{}\".".format(page_name))
         return
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     msg = '[WIKIPEDIA] {} | "{}"'.format(page_name, snippet)
     msg_url = msg + ' | https://{}/wiki/{}'.format(server, query)
     if msg_url == trigger:  # prevents triggering on another instance of Sopel
@@ -119,14 +99,7 @@ def mw_snippet(server, query):
                    '&action=query&prop=extracts&exintro&explaintext'
                    '&exchars=300&redirects&titles=')
     snippet_url += query
-<<<<<<< HEAD
-    try:
-        snippet = requests.get(snippet_url).json()
-    except:
-        return None
-=======
     snippet = get(snippet_url).json()
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     snippet = snippet['query']['pages']
 
     # For some reason, the API gives the page *number* as the key, so we just

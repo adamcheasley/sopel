@@ -2,17 +2,17 @@
 # Copyright 2008-9, Sean B. Palmer, inamidst.com
 # Copyright 2012, Elsie Powell, embolalia.com
 # Licensed under the Eiffel Forum License 2.
-from __future__ import unicode_literals, absolute_import, print_function, division
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
 
+import json
 import re
-<<<<<<< HEAD
+import sys
+
 import requests
+import xmltodict
 from sopel import web
 from sopel.module import commands, example
-import json
-=======
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
-import sys
 
 if sys.version_info.major < 3:
     from urllib import unquote as _unquote
@@ -20,11 +20,7 @@ if sys.version_info.major < 3:
 else:
     from urllib.parse import unquote
 
-import requests
-import xmltodict
 
-from sopel import web
-from sopel.module import commands, example
 
 
 def formatnumber(n):
@@ -38,12 +34,6 @@ def formatnumber(n):
 r_bing = re.compile(r'<h2(?: class=" b_topTitle")?><a href="([^"]+)"')
 
 
-<<<<<<< HEAD
-def bing_search(query, lang='en-GB'):
-    base = 'http://www.bing.com/search?mkt=%s&q=' % lang
-    bytes = requests.get(base + query).text
-    m = r_bing.search(bytes)
-=======
 def bing_search(query, lang='en-US'):
     base = 'https://www.bing.com/search'
     parameters = {
@@ -52,7 +42,6 @@ def bing_search(query, lang='en-US'):
     }
     response = requests.get(base, parameters)
     m = r_bing.search(response.text)
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     if m:
         return m.group(1)
 
@@ -62,10 +51,6 @@ r_duck = re.compile(r'nofollow" class="[^"]+" href="(?!(?:https?:\/\/r\.search\.
 
 def duck_search(query):
     query = query.replace('!', '')
-<<<<<<< HEAD
-    uri = 'http://duckduckgo.com/html/?q=%s&kl=uk-en' % query
-    bytes = requests.get(uri).text
-=======
     base = 'https://duckduckgo.com/html/'
     parameters = {
         'kl': 'us-en',
@@ -75,7 +60,6 @@ def duck_search(query):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36'
     }
     bytes = requests.get(base, parameters, headers=headers).text
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     if 'web-result' in bytes:  # filter out the adds on top of the page
         bytes = bytes.split('web-result')[1]
     m = r_duck.search(bytes)
@@ -92,15 +76,6 @@ def duck_api(query):
     if '!bang' in query.lower():
         return 'https://duckduckgo.com/bang.html'
 
-<<<<<<< HEAD
-    # This fixes issue #885 (https://github.com/sopel-irc/sopel/issues/885)
-    # It seems that duckduckgo api redirects to its Instant answer API html page
-    # if the query constains special charactares that aren't urlencoded.
-    # So in order to always get a JSON response back the query is urlencoded
-    query = quote_plus(query)
-    uri = 'http://api.duckduckgo.com/?q=%s&format=json&no_html=1&no_redirect=1' % query
-    results = requests.get(uri).json()
-=======
     base = 'https://api.duckduckgo.com/'
     parameters = {
         'format': 'json',
@@ -112,7 +87,6 @@ def duck_api(query):
         results = requests.get(base, parameters).json()
     except ValueError:
         return None
->>>>>>> 229f3bfacaf393f331bf79569783f23d88d05a03
     if results['Redirect']:
         return results['Redirect']
     else:
