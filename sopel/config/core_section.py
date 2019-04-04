@@ -12,12 +12,26 @@ from sopel.tools import Identifier
 
 
 def _find_certs():
-    certs = '/etc/pki/tls/cert.pem'
-    if not os.path.isfile(certs):
-        certs = '/etc/ssl/certs/ca-certificates.crt'
-        if not os.path.isfile(certs):
-            return None
-    return certs
+    """
+    Find the TLS root CA store.
+
+    :returns: str (path to file)
+    """
+    # check if the root CA store is at a known location
+    locations = [
+        '/etc/pki/tls/cert.pem',  # best first guess
+        '/etc/ssl/certs/ca-certificates.crt',  # Debian
+        '/etc/ssl/cert.pem',  # FreeBSD base OpenSSL
+        '/usr/local/openssl/cert.pem',  # FreeBSD userland OpenSSL
+        '/etc/pki/tls/certs/ca-bundle.crt',  # RHEL 6 / Fedora
+        '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',  # RHEL 7 / CentOS
+        '/etc/pki/tls/cacert.pem',  # OpenELEC
+        '/etc/ssl/ca-bundle.pem',  # OpenSUSE
+    ]
+    for certs in locations:
+        if os.path.isfile(certs):
+            return certs
+    return None
 
 
 def configure(config):
@@ -49,11 +63,15 @@ class CoreSection(StaticSection):
     This should not be set for networks that do not support IRCv3 account
     capabilities."""
 
+    alias_nicks = ListAttribute('alias_nicks')
+    """List of alternate names recognized as the bot's nick for $nick and
+    $nickname regex substitutions"""
+
     auth_method = ChoiceAttribute('auth_method', choices=[
-        'nickserv', 'authserv', 'Q', 'sasl', 'server'])
+        'nickserv', 'authserv', 'Q', 'sasl', 'server', 'userserv'])
     """The method to use to authenticate with the server.
 
-    Can be ``nickserv``, ``authserv``, ``Q``, ``sasl``, or ``server``."""
+    Can be ``nickserv``, ``authserv``, ``Q``, ``sasl``, or ``server`` or ``userserv``."""
 
     auth_password = ValidatedAttribute('auth_password')
     """The password to use to authenticate with the server."""
@@ -85,7 +103,7 @@ class CoreSection(StaticSection):
                                              default='%Y-%m-%d - %T%Z')
     """The default format to use for time in messages."""
 
-    default_timezone = ValidatedAttribute('default_timezone')
+    default_timezone = ValidatedAttribute('default_timezone', default='UTC')
     """The default timezone to use for time in messages."""
 
     enable = ListAttribute('enable')
@@ -117,8 +135,8 @@ class CoreSection(StaticSection):
 
     Regular expression syntax is used"""
 
-    log_raw = ValidatedAttribute('log_raw', bool, default=True)
-    """Whether a log of raw lines as sent and recieved should be kept."""
+    log_raw = ValidatedAttribute('log_raw', bool, default=False)
+    """Whether a log of raw lines as sent and received should be kept."""
 
     logdir = FilenameAttribute('logdir', directory=True, default='logs')
     """Directory in which to place logs."""
@@ -135,7 +153,7 @@ class CoreSection(StaticSection):
     modes = ValidatedAttribute('modes', default='B')
     """User modes to be set on connection."""
 
-    name = ValidatedAttribute('name', default='Sopel: http://sopel.chat')
+    name = ValidatedAttribute('name', default='Sopel: https://sopel.chat')
     """The "real name" of your bot for WHOIS responses."""
 
     nick = ValidatedAttribute('nick', Identifier, default=Identifier('Sopel'))
@@ -172,10 +190,10 @@ class CoreSection(StaticSection):
     port = ValidatedAttribute('port', int, default=6667)
     """The port to connect on."""
 
-    prefix = ValidatedAttribute('prefix', default='\.')
+    prefix = ValidatedAttribute('prefix', default='\\.')
     """The prefix to add to the beginning of commands.
 
-    It is a regular expression (so the default, ``\.``, means commands start
+    It is a regular expression (so the default, ``\\.``, means commands start
     with a period), though using capturing groups will create problems."""
 
     reply_errors = ValidatedAttribute('reply_errors', bool, default=True)

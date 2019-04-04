@@ -4,7 +4,7 @@ remind.py - Sopel Reminder Module
 Copyright 2011, Sean B. Palmer, inamidst.com
 Licensed under the Eiffel Forum License 2.
 
-http://sopel.chat
+https://sopel.chat
 """
 from __future__ import unicode_literals, absolute_import, print_function, division
 
@@ -21,7 +21,7 @@ from sopel.tools.time import get_timezone, format_time
 
 try:
     import pytz
-except:
+except ImportError:
     pytz = None
 
 
@@ -80,6 +80,7 @@ def setup(bot):
     t = threading.Thread(target=monitor, args=targs)
     t.start()
 
+
 scaling = collections.OrderedDict([
     ('years', 365.25 * 24 * 3600),
     ('year', 365.25 * 24 * 3600),
@@ -133,12 +134,12 @@ def remind(bot, trigger):
         bot.say("No message given for reminder.")
         return NOLIMIT
     duration = 0
-    message = filter(None, re.split('(\d+(?:\.\d+)? ?(?:(?i)' + periods + ')) ?',
+    message = filter(None, re.split(r'(\d+(?:\.\d+)? ?(?:(?i)' + periods + ')) ?',
                                     trigger.group(2))[1:])
     reminder = ''
     stop = False
     for piece in message:
-        grp = re.match('(\d+(?:\.\d+)?) ?(.*) ?', piece)
+        grp = re.match(r'(\d+(?:\.\d+)?) ?(.*) ?', piece)
         if grp and not stop:
             length = float(grp.group(1))
             factor = scaling.get(grp.group(2).lower(), 60)
@@ -162,10 +163,10 @@ def remind(bot, trigger):
 @example('.at 13:47 Do your homework!')
 def at(bot, trigger):
     """
-    Gives you a reminder at the given time. Takes hh:mm:ssTimezone
-    message. Timezone is any timezone Sopel takes elsewhere; the best choices
-    are those from the tzdb; a list of valid options is available at
-    http://sopel.chat/tz . The seconds and timezone are optional.
+    Gives you a reminder at the given time. Takes `hh:mm:ssTimezone message`.
+    Timezone is any timezone Sopel takes elsewhere; the best choices are those
+    from the tzdb; a list of valid options is available at
+    <https://sopel.chat/tz>. The seconds and timezone are optional.
     """
     if not trigger.group(2):
         bot.say("No arguments given for reminder command.")
@@ -194,7 +195,7 @@ def at(bot, trigger):
         timediff = at_time - now
     else:
         if tz and tz.upper() != 'UTC':
-            bot.reply("I don't have timzeone support installed.")
+            bot.reply("I don't have timezone support installed.")
             return NOLIMIT
         now = datetime.now()
         at_time = datetime(now.year, now.month, now.day,
@@ -205,7 +206,7 @@ def at(bot, trigger):
 
     if duration < 0:
         duration += 86400
-    create_reminder(bot, trigger, duration, message, 'UTC')
+    create_reminder(bot, trigger, duration, message, timezone)
 
 
 def create_reminder(bot, trigger, duration, message, tz):

@@ -5,7 +5,6 @@ MANIFEST
 doc/build/*
 logs/*
 tests
-sopel.wiki/*
 sopel.egg-info/*
 *.db
 *.pyc
@@ -26,8 +25,11 @@ sopel.egg-info/*
 .project
 .pydevproject
 
+# Test/Coverage
 .cache
+.pytest_cache
 .coverage
+coverage_html_report/
 
 # macOS
 *.DS_Store

@@ -12,7 +12,6 @@ dispatch function in bot.py and making it easier to maintain.
 # Licensed under the Eiffel Forum License 2.
 from __future__ import unicode_literals, absolute_import, print_function, division
 
-
 from random import randint
 import re
 import sys
@@ -50,7 +49,7 @@ def auth_after_register(bot):
             'AUTHSERV auth',
             account + ' ' + password
         ))
-    
+
     elif bot.config.core.auth_method == 'Q':
         account = bot.config.core.auth_username
         password = bot.config.core.auth_password
@@ -58,6 +57,13 @@ def auth_after_register(bot):
             'AUTH',
             account + ' ' + password
         ))
+
+    elif bot.config.core.auth_method == 'userserv':
+        userserv_name = bot.config.core.auth_target or 'UserServ'
+        account = bot.config.core.auth_username
+        password = bot.config.core.auth_password
+        bot.msg(userserv_name, "LOGIN {account} {password}".format(
+                account=account, password=password))
 
 
 @sopel.module.event(events.RPL_WELCOME, events.RPL_LUSERCLIENT)
@@ -165,16 +171,20 @@ def handle_names(bot, trigger):
     """Handle NAMES response, happens when joining to channels."""
     names = trigger.split()
 
-    #TODO specific to one channel type. See issue 281.
-    channels = re.search('(#\S*)', trigger.raw)
+    # TODO specific to one channel type. See issue 281.
+    channels = re.search(r'(#\S*)', trigger.raw)
     if not channels:
         return
     channel = Identifier(channels.group(1))
     if channel not in bot.privileges:
         bot.privileges[channel] = dict()
+    if channel not in bot.channels:
+        bot.channels[channel] = Channel(channel)
 
     # This could probably be made flexible in the future, but I don't think
     # it'd be worth it.
+    # If this ever needs to be updated, remember to change the mode handling in
+    # the WHO-handler functions below, too.
     mapping = {'+': sopel.module.VOICE,
                '%': sopel.module.HALFOP,
                '@': sopel.module.OP,
@@ -188,6 +198,15 @@ def handle_names(bot, trigger):
                 priv = priv | value
         nick = Identifier(name.lstrip(''.join(mapping.keys())))
         bot.privileges[channel][nick] = priv
+        user = bot.users.get(nick)
+        if user is None:
+            # It's not possible to set the username/hostname from info received
+            # in a NAMES reply, unfortunately.
+            # Fortunately, the user should already exist in bot.users by the
+            # time this code runs, so this is 99.9% ass-covering.
+            user = User(nick, None, None)
+            bot.users[nick] = user
+        bot.channels[channel].add_user(user, privs=priv)
 
 
 @sopel.module.rule('(.*)')
@@ -229,7 +248,18 @@ def track_modes(bot, trigger):
         else:
             arg = Identifier(arg)
             for mode in modes:
-                priv = bot.privileges[channel].get(arg, 0)
+                priv = bot.channels[channel].privileges.get(arg, 0)
+                # Log a warning if the two privilege-tracking data structures
+                # get out of sync. That should never happen.
+                # This is a good place to verify that bot.channels is doing
+                # what it's supposed to do before ultimately removing the old,
+                # deprecated bot.privileges structure completely.
+                ppriv = bot.privileges[channel].get(arg, 0)
+                if priv != ppriv:
+                    LOGGER.warning("Privilege data error! Please share Sopel's"
+                                   "raw log with the developers, if enabled. "
+                                   "(Expected {} == {} for {} in {}.)"
+                                   .format(priv, ppriv, arg, channel))
                 value = mapping.get(mode[1])
                 if value is not None:
                     if mode[0] == '+':
@@ -237,6 +267,7 @@ def track_modes(bot, trigger):
                     else:
                         priv = priv & ~value
                     bot.privileges[channel][arg] = priv
+                    bot.channels[channel].privileges[arg] = priv
 
 
 @sopel.module.rule('.*')
@@ -482,7 +513,7 @@ def recieve_cap_ls_reply(bot, trigger):
     auth_caps = ['account-notify', 'extended-join', 'account-tag']
     for cap in auth_caps:
         if cap not in bot._cap_reqs:
-            bot._cap_reqs[cap] = [_CapReq('=', 'coretasks', acct_warn)]
+            bot._cap_reqs[cap] = [_CapReq('', 'coretasks', acct_warn)]
 
     for cap, reqs in iteritems(bot._cap_reqs):
         # At this point, we know mandatory and prohibited don't co-exist, but
@@ -524,6 +555,37 @@ def recieve_cap_ack_sasl(bot):
     bot.write(('AUTHENTICATE', mech))
 
 
+def send_authenticate(bot, token):
+    """Send ``AUTHENTICATE`` command to server with the given ``token``.
+
+    :param bot: instance of IRC bot that must authenticate
+    :param str token: authentication token
+
+    In case the ``token`` is more than 400 bytes, we need to split it and send
+    as many ``AUTHENTICATE`` commands as needed. If the last chunk is 400 bytes
+    long, we must also send a last empty command (`AUTHENTICATE +` is for empty
+    line), so the server knows we are done with ``AUTHENTICATE``.
+
+    .. seealso::
+
+        https://ircv3.net/specs/extensions/sasl-3.1.html#the-authenticate-command
+
+    """
+    # payload is a base64 encoded token
+    payload = base64.b64encode(token.encode('utf-8'))
+
+    # split the payload into chunks of at most 400 bytes
+    chunk_size = 400
+    for i in range(0, len(payload), chunk_size):
+        offset = i + chunk_size
+        chunk = payload[i:offset]
+        bot.write(('AUTHENTICATE', chunk))
+
+    # send empty (+) AUTHENTICATE when payload's length is a multiple of 400
+    if len(payload) % chunk_size == 0:
+        bot.write(('AUTHENTICATE', '+'))
+
+
 @sopel.module.event('AUTHENTICATE')
 @sopel.module.rule('.*')
 def auth_proceed(bot, trigger):
@@ -534,8 +596,7 @@ def auth_proceed(bot, trigger):
     sasl_username = bot.config.core.auth_username or bot.nick
     sasl_password = bot.config.core.auth_password
     sasl_token = '\0'.join((sasl_username, sasl_username, sasl_password))
-    # Spec says we do a base 64 encode on the SASL stuff
-    bot.write(('AUTHENTICATE', base64.b64encode(sasl_token.encode('utf-8'))))
+    send_authenticate(bot, sasl_token)
 
 
 @sopel.module.event(events.RPL_SASLSUCCESS)
@@ -544,22 +605,20 @@ def sasl_success(bot, trigger):
     bot.write(('CAP', 'END'))
 
 
-#Live blocklist editing
+# Live blocklist editing
 
 
 @sopel.module.commands('blocks')
 @sopel.module.priority('low')
 @sopel.module.thread(False)
 @sopel.module.unblockable
+@sopel.module.require_admin
 def blocks(bot, trigger):
-    """Manage Sopel's blocking features.
-
-    https://github.com/sopel-irc/sopel/wiki/Making-Sopel-ignore-people
+    """
+    Manage Sopel's blocking features.\
+    See [ignore system documentation]({% link _usage/ignoring-people.md %}).
 
     """
-    if not trigger.admin:
-        return
-
     STRINGS = {
         "success_del": "Successfully deleted block: %s",
         "success_add": "Successfully added block: %s",
@@ -655,10 +714,11 @@ def recv_whox(bot, trigger):
         return LOGGER.warning('While populating `bot.accounts` a WHO response was malformed.')
     _, _, channel, user, host, nick, status, account = trigger.args
     away = 'G' in status
-    _record_who(bot, channel, user, host, nick, account, away)
+    modes = ''.join([c for c in status if c in '~&@%+'])
+    _record_who(bot, channel, user, host, nick, account, away, modes)
 
 
-def _record_who(bot, channel, user, host, nick, account=None, away=None):
+def _record_who(bot, channel, user, host, nick, account=None, away=None, modes=None):
     nick = Identifier(nick)
     channel = Identifier(channel)
     if nick not in bot.users:
@@ -669,9 +729,21 @@ def _record_who(bot, channel, user, host, nick, account=None, away=None):
     else:
         user.account = account
     user.away = away
+    priv = 0
+    if modes:
+        mapping = {'+': sopel.module.VOICE,
+           '%': sopel.module.HALFOP,
+           '@': sopel.module.OP,
+           '&': sopel.module.ADMIN,
+           '~': sopel.module.OWNER}
+        for c in modes:
+            priv = priv | mapping[c]
     if channel not in bot.channels:
         bot.channels[channel] = Channel(channel)
-    bot.channels[channel].add_user(user)
+    bot.channels[channel].add_user(user, privs=priv)
+    if channel not in bot.privileges:
+        bot.privileges[channel] = dict()
+    bot.privileges[channel][nick] = priv
 
 
 @sopel.module.event(events.RPL_WHOREPLY)
@@ -679,8 +751,9 @@ def _record_who(bot, channel, user, host, nick, account=None, away=None):
 @sopel.module.priority('high')
 @sopel.module.unblockable
 def recv_who(bot, trigger):
-    channel, user, host, _, nick, = trigger.args[1:6]
-    _record_who(bot, channel, user, host, nick)
+    channel, user, host, _, nick, status = trigger.args[1:7]
+    modes = ''.join([c for c in status if c in '~&@%+'])
+    _record_who(bot, channel, user, host, nick, modes=modes)
 
 
 @sopel.module.event(events.RPL_ENDOFWHO)

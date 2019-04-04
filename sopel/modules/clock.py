@@ -23,7 +23,7 @@ class TimeSection(StaticSection):
         serialize=validate_timezone,
         default='UTC'
     )
-    """Default time zone (see http://sopel.chat/tz)"""
+    """Default time zone (see https://sopel.chat/tz)"""
     time_format = ValidatedAttribute(
         'time_format',
         parse=validate_format,
@@ -33,9 +33,15 @@ class TimeSection(StaticSection):
 
 
 def configure(config):
+    """
+    | name | example | purpose |
+    | ---- | ------- | ------- |
+    | tz | America/Chicago | Preferred time zone (see <https://sopel.chat/tz>); defaults to UTC |
+    | time\\_format | %Y-%m-%d - %T%Z | Preferred time format (see <http://strftime.net>) |
+    """
     config.define_section('clock', TimeSection)
     config.clock.configure_setting(
-        'tz', 'Preferred time zone (http://sopel.chat/tz)')
+        'tz', 'Preferred time zone (https://sopel.chat/tz)')
     config.clock.configure_setting(
         'time_format', 'Preferred time format (http://strftime.net)')
 
@@ -65,7 +71,7 @@ def f_time(bot, trigger):
 def update_user(bot, trigger):
     """
     Set your preferred time zone. Most timezones will work, but it's best to
-    use one from http://sopel.chat/tz
+    use one from <https://sopel.chat/tz>.
     """
     if not pytz:
         bot.reply("Sorry, I don't have timezone support installed.")
@@ -73,16 +79,16 @@ def update_user(bot, trigger):
         tz = trigger.group(2)
         if not tz:
             bot.reply("What timezone do you want to set? Try one from "
-                      "http://sopel.chat/tz")
+                      "https://sopel.chat/tz")
             return
         if tz not in pytz.all_timezones:
             bot.reply("I don't know that time zone. Try one from "
-                      "http://sopel.chat/tz")
+                      "https://sopel.chat/tz")
             return
 
         bot.db.set_nick_value(trigger.nick, 'timezone', tz)
         if len(tz) < 7:
-            bot.say("Okay, {}, but you should use one from http://sopel.chat/tz "
+            bot.say("Okay, {}, but you should use one from https://sopel.chat/tz "
                     "if you use DST.".format(trigger.nick))
         else:
             bot.reply('I now have you in the %s time zone.' % tz)
@@ -92,7 +98,7 @@ def update_user(bot, trigger):
 @example('.gettz [nick]')
 def get_user_tz(bot, trigger):
     """
-    Gets a user's preferred time zone, will show yours if no user specified
+    Gets a user's preferred time zone; will show yours if no user specified.
     """
     if not pytz:
         bot.reply("Sorry, I don't have timezone support installed.")
@@ -115,7 +121,7 @@ def get_user_tz(bot, trigger):
 def update_user_format(bot, trigger):
     """
     Sets your preferred format for time. Uses the standard strftime format. You
-    can use http://strftime.net or your favorite search engine to learn more.
+    can use <http://strftime.net> or your favorite search engine to learn more.
     """
     tformat = trigger.group(2)
     if not tformat:
@@ -133,7 +139,7 @@ def update_user_format(bot, trigger):
 
     try:
         timef = format_time(db=bot.db, zone=tz, nick=trigger.nick)
-    except:
+    except Exception:  # TODO: Be specific
         bot.reply("That format doesn't work. Try using"
                   " http://strftime.net to make one.")
         # New format doesn't work. Revert save in database.
@@ -148,7 +154,7 @@ def update_user_format(bot, trigger):
 @example('.gettf [nick]')
 def get_user_format(bot, trigger):
     """
-    Gets a user's preferred time format, will show yours if no user specified
+    Gets a user's preferred time format; will show yours if no user specified.
     """
     nick = trigger.group(2)
     if not nick:
@@ -169,9 +175,9 @@ def get_user_format(bot, trigger):
 @example('.setctz America/New_York')
 def update_channel(bot, trigger):
     """
-    Set the preferred time zone for the channel.
+    Set the preferred timezone for the channel.
     """
-    if bot.privileges[trigger.sender][trigger.nick] < OP:
+    if bot.channels[trigger.sender].privileges[trigger.nick] < OP:
         return
     elif not pytz:
         bot.reply("Sorry, I don't have timezone support installed.")
@@ -179,16 +185,16 @@ def update_channel(bot, trigger):
         tz = trigger.group(2)
         if not tz:
             bot.reply("What timezone do you want to set? Try one from "
-                      "http://sopel.chat/tz")
+                      "https://sopel.chat/tz")
             return
         if tz not in pytz.all_timezones:
             bot.reply("I don't know that time zone. Try one from "
-                      "http://sopel.chat/tz")
+                      "https://sopel.chat/tz")
             return
 
         bot.db.set_channel_value(trigger.sender, 'timezone', tz)
         if len(tz) < 7:
-            bot.say("Okay, {}, but you should use one from http://sopel.chat/tz "
+            bot.say("Okay, {}, but you should use one from https://sopel.chat/tz "
                     "if you use DST.".format(trigger.nick))
         else:
             bot.reply(
@@ -199,8 +205,8 @@ def update_channel(bot, trigger):
 @example('.getctz [channel]')
 def get_channel_tz(bot, trigger):
     """
-    Gets the preferred channel timezone, or the current channel timezone if no
-    channel given.
+    Gets the channel's preferred timezone; returns the current channel's
+    if no channel name is given.
     """
     if not pytz:
         bot.reply("Sorry, I don't have timezone support installed.")
@@ -223,9 +229,9 @@ def get_channel_tz(bot, trigger):
 def update_channel_format(bot, trigger):
     """
     Sets your preferred format for time. Uses the standard strftime format. You
-    can use http://strftime.net or your favorite search engine to learn more.
+    can use <http://strftime.net> or your favorite search engine to learn more.
     """
-    if bot.privileges[trigger.sender][trigger.nick] < OP:
+    if bot.channels[trigger.sender].privileges[trigger.nick] < OP:
         return
 
     tformat = trigger.group(2)
@@ -243,7 +249,7 @@ def update_channel_format(bot, trigger):
 
     try:
         timef = format_time(db=bot.db, zone=tz, channel=trigger.sender)
-    except:
+    except Exception:  # TODO: Be specific
         bot.reply("That format doesn't work. Try using"
                   " http://strftime.net to make one.")
         # New format doesn't work. Revert save in database.
@@ -260,8 +266,8 @@ def update_channel_format(bot, trigger):
 @example('.getctf [channel]')
 def get_channel_format(bot, trigger):
     """
-    Gets the channel's preferred time format, will return current channel's if
-    no channel name is given
+    Gets the channel's preferred time format; will return current channel's if
+    no channel name is given.
     """
 
     channel = trigger.group(2)

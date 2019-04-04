@@ -25,14 +25,10 @@ As an example, if one wanted to define the ``[spam]`` section as having an
 """
 
 from __future__ import unicode_literals, absolute_import, print_function, division
+
 import os.path
 import sys
 from sopel.tools import get_input
-
-try:
-    import configparser
-except ImportError:
-    import ConfigParser as configparser
 
 if sys.version_info.major >= 3:
     unicode = str
@@ -46,7 +42,7 @@ class NO_DEFAULT(object):
 class StaticSection(object):
     """A configuration section with parsed and validated settings.
 
-    This class is intended to be subclassed with added ``ValidatedAttribute``\s.
+    This class is intended to be subclassed with added ``ValidatedAttribute``\\s.
     """
     def __init__(self, config, section_name, validate=True):
         if not config.parser.has_section(section_name):
@@ -127,13 +123,13 @@ class BaseValidated(object):
 
         Must be implemented in subclasses.
         """
-        raise NotImplemented("Serialize method must be implemented in subclass")
+        raise NotImplementedError("Serialize method must be implemented in subclass")
 
     def parse(self, value):
         """Take a string from the file, and return the appropriate object.
 
         Must be implemented in subclasses."""
-        raise NotImplemented("Parse method must be implemented in subclass")
+        raise NotImplementedError("Parse method must be implemented in subclass")
 
     def __get__(self, instance, owner=None):
         if instance is None:
@@ -143,7 +139,10 @@ class BaseValidated(object):
             # instance here.
             return self
 
-        if instance._parser.has_option(instance._section_name, self.name):
+        env_name = 'SOPEL_%s_%s' % (instance._section_name.upper(), self.name.upper())
+        if env_name in os.environ:
+            value = os.environ.get(env_name)
+        elif instance._parser.has_option(instance._section_name, self.name):
             value = instance._parser.get(instance._section_name, self.name)
         else:
             if self.default is not NO_DEFAULT:
@@ -222,7 +221,7 @@ class ListAttribute(BaseValidated):
         self.strip = strip
 
     def parse(self, value):
-        value = value.split(',')
+        value = list(filter(None, value.split(',')))
         if self.strip:
             return [v.strip() for v in value]
         else:
@@ -290,7 +289,10 @@ class FilenameAttribute(BaseValidated):
     def __get__(self, instance, owner=None):
         if instance is None:
             return self
-        if instance._parser.has_option(instance._section_name, self.name):
+        env_name = 'SOPEL_%s_%s' % (instance._section_name.upper(), self.name.upper())
+        if env_name in os.environ:
+            value = os.environ.get(env_name)
+        elif instance._parser.has_option(instance._section_name, self.name):
             value = instance._parser.get(instance._section_name, self.name)
         else:
             if self.default is not NO_DEFAULT:
@@ -336,14 +338,14 @@ class FilenameAttribute(BaseValidated):
         if self.directory and not os.path.isdir(value):
             try:
                 os.makedirs(value)
-            except OSError:
+            except (IOError, OSError):
                 raise ValueError(
                     "Value must be an existing or creatable directory.")
         if not self.directory and not os.path.isfile(value):
             try:
                 open(value, 'w').close()
-            except OSError:
-                raise ValueError("Value must be an existant or creatable file.")
+            except (IOError, OSError):
+                raise ValueError("Value must be an existing or creatable file.")
         return value
 
     def serialize(self, main_config, this_section, value):

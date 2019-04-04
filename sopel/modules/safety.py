@@ -8,17 +8,23 @@ This module uses virustotal.com
 """
 from __future__ import unicode_literals, absolute_import, print_function, division
 
-import sopel.web as web
 from sopel.config.types import StaticSection, ValidatedAttribute, ListAttribute
 from sopel.formatting import color, bold
 from sopel.logger import get_logger
 from sopel.module import OP
 import sopel.tools
 import sys
-import json
 import time
 import os.path
 import re
+import requests
+
+try:
+    # This is done separately from the below version if/else because JSONDecodeError
+    # didn't appear until Python 3.5, but Sopel claims support for 3.3+
+    from json import JSONDecodeError as InvalidJSONResponse
+except ImportError:
+    InvalidJSONResponse = ValueError
 
 if sys.version_info.major > 2:
     unicode = str
@@ -37,14 +43,21 @@ known_good = []
 
 class SafetySection(StaticSection):
     enabled_by_default = ValidatedAttribute('enabled_by_default', bool, default=True)
-    """Enable URL safety in all channels where it isn't explicitly disabled."""
+    """Whether to enable URL safety in all channels where it isn't explicitly disabled."""
     known_good = ListAttribute('known_good')
     """List of "known good" domains to ignore."""
     vt_api_key = ValidatedAttribute('vt_api_key')
-    """Optional VirusTotal API key."""
+    """Optional VirusTotal API key (improves malicious URL detection)."""
 
 
 def configure(config):
+    """
+    | name | example | purpose |
+    | ---- | ------- | ------- |
+    | enabled\\_by\\_default | True | Enable URL safety in all channels where it isn't explicitly disabled. |
+    | known\\_good | sopel.chat,dftba.net | List of "known good" domains to ignore. |
+    | vt\\_api\\_key | 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef | Optional VirusTotal API key to improve malicious URL detection |
+    """
     config.define_section('safety', SafetySection)
     config.safety.configure_setting(
         'enabled_by_default',
@@ -84,10 +97,10 @@ def setup(bot):
 
 def _download_malwaredomains_db(path):
     print('Downloading malwaredomains db...')
-    urlretrieve('http://mirror1.malwaredomains.com/files/justdomains', path)
+    urlretrieve('https://mirror1.malwaredomains.com/files/justdomains', path)
 
 
-@sopel.module.rule('(?u).*(https?://\S+).*')
+@sopel.module.rule(r'(?u).*(https?://\S+).*')
 @sopel.module.priority('high')
 def url_handler(bot, trigger):
     """ Check for malicious URLs """
@@ -115,7 +128,11 @@ def url_handler(bot, trigger):
     if not check:
         return  # Not overriden by DB, configured default off
 
-    netloc = urlparse(trigger.group(1)).netloc
+    try:
+        netloc = urlparse(trigger.group(1)).netloc
+    except ValueError:
+        return  # Invalid IPv6 URL
+
     if any(regex.search(netloc) for regex in known_good):
         return  # Whitelisted
 
@@ -127,10 +144,9 @@ def url_handler(bot, trigger):
                        'scan': '1'}
 
             if trigger not in bot.memory['safety_cache']:
-                result = web.post(vt_base_api_url + 'report', payload)
-                if sys.version_info.major > 2:
-                    result = result.decode('utf-8')
-                result = json.loads(result)
+                r = requests.post(vt_base_api_url + 'report', data=payload)
+                r.raise_for_status()
+                result = r.json()
                 age = time.time()
                 data = {'positives': result['positives'],
                         'total': result['total'],
@@ -143,8 +159,11 @@ def url_handler(bot, trigger):
                 result = bot.memory['safety_cache'][trigger]
             positives = result['positives']
             total = result['total']
-    except Exception:
-        LOGGER.debug('Error from checking URL with VT.', exc_info=True)
+    except requests.exceptions.RequestException:
+        LOGGER.debug('[VirusTotal] Error obtaining response.', exc_info=True)
+        pass  # Ignoring exceptions with VT so MalwareDomains will always work
+    except InvalidJSONResponse:
+        LOGGER.debug('[VirusTotal] Malformed response (invalid JSON).', exc_info=True)
         pass  # Ignoring exceptions with VT so MalwareDomains will always work
 
     if unicode(netloc).lower() in malware_domains:
@@ -167,7 +186,7 @@ def url_handler(bot, trigger):
 @sopel.module.commands('safety')
 def toggle_safety(bot, trigger):
     """ Set safety setting for channel """
-    if not trigger.admin and bot.privileges[trigger.sender][trigger.nick] < OP:
+    if not trigger.admin and bot.channels[trigger.sender].privileges[trigger.nick] < OP:
         bot.reply('Only channel operators can change safety settings')
         return
     allowed_states = ['strict', 'on', 'off', 'local', 'local strict']

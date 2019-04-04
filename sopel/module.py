@@ -13,20 +13,44 @@ import sopel.test_tools
 import functools
 
 NOLIMIT = 1
-"""Return value for ``callable``\s, which supresses rate limiting for the call.
+"""Return value for ``callable``\\s, which suppresses rate limiting for the call.
 
 Returning this value means the triggering user will not be
 prevented from triggering the command again within the rate limit. This can
-be used, for example, to allow a user to rety a failed command immediately.
+be used, for example, to allow a user to retry a failed command immediately.
 
 .. versionadded:: 4.0
 """
 
 VOICE = 1
+"""Privilege level for the +v channel permission
+
+.. versionadded:: 4.1
+"""
+
 HALFOP = 2
+"""Privilege level for the +h channel permission
+
+.. versionadded:: 4.1
+"""
+
 OP = 4
+"""Privilege level for the +o channel permission
+
+.. versionadded:: 4.1
+"""
+
 ADMIN = 8
+"""Privilege level for the +a channel permission
+
+.. versionadded:: 4.1
+"""
+
 OWNER = 16
+"""Privilege level for the +q channel permission
+
+.. versionadded:: 4.1
+"""
 
 
 def unblockable(function):
@@ -122,7 +146,7 @@ def commands(*command_list):
     This decorator can be used to add multiple commands to one callable in a
     single line. The resulting match object will have the command as the first
     group, rest of the line, excluding leading whitespace, as the second group.
-    Parameters 1 through 4, seperated by whitespace, will be groups 3-6.
+    Parameters 1 through 4, separated by whitespace, will be groups 3-6.
 
     Args:
         command: A string, which can be a regular expression.
@@ -133,11 +157,11 @@ def commands(*command_list):
 
     Example:
         @commands("hello"):
-            If the command prefix is "\.", this would trigger on lines starting
+            If the command prefix is "\\.", this would trigger on lines starting
             with ".hello".
 
         @commands('j', 'join')
-            If the command prefix is "\.", this would trigger on lines starting
+            If the command prefix is "\\.", this would trigger on lines starting
             with either ".j" or ".join".
 
     """
@@ -155,7 +179,7 @@ def nickname_commands(*command_list):
     This decorator can be used multiple times to add multiple rules. The
     resulting match object will have the command as the first group, rest of
     the line, excluding leading whitespace, as the second group. Parameters 1
-    through 4, seperated by whitespace, will be groups 3-6.
+    through 4, separated by whitespace, will be groups 3-6.
 
     Args:
         command: A string, which can be a regular expression.
@@ -171,31 +195,13 @@ def nickname_commands(*command_list):
             "$nickname hello! p1 p2 p3 p4 p5 p6 p7 p8 p9".
         @nickname_commands(".*"):
             Would trigger on anything starting with "$nickname[:,]? ", and
-            would have never have any additional parameters, as the command
-            would match the rest of the line.
+            would never have any additional parameters, as the command would
+            match the rest of the line.
 
     """
     def add_attribute(function):
-        if not hasattr(function, "rule"):
-            function.rule = []
-        rule = r"""
-        ^
-        $nickname[:,]? # Nickname.
-        \s+({command}) # Command as group 1.
-        (?:\s+         # Whitespace to end command.
-        (              # Rest of the line as group 2.
-        (?:(\S+))?     # Parameters 1-4 as groups 3-6.
-        (?:\s+(\S+))?
-        (?:\s+(\S+))?
-        (?:\s+(\S+))?
-        .*             # Accept anything after the parameters. Leave it up to
-                       # the module to parse the line.
-        ))?            # Group 1 must be None, if there are no parameters.
-        $              # EoL, so there are no partial matches.
-        """.format(command='|'.join(command_list))
-        function.rule.append(rule)
+        function.nickname_commands = [cmd for cmd in command_list]
         return function
-
     return add_attribute
 
 
@@ -324,7 +330,7 @@ def require_privilege(level, message=None):
             # If this is a privmsg, ignore privilege requirements
             if trigger.is_privmsg:
                 return function(bot, trigger, *args, **kwargs)
-            channel_privs = bot.privileges[trigger.sender]
+            channel_privs = bot.channels[trigger.sender].privileges
             allowed = channel_privs.get(trigger.nick, 0) >= level
             if not trigger.is_privmsg and not allowed:
                 if message and not callable(message):
@@ -335,22 +341,33 @@ def require_privilege(level, message=None):
     return actual_decorator
 
 
-def require_admin(message=None):
+def require_admin(message=None, reply=False):
     """Decorate a function to require the triggering user to be a bot admin.
 
-    If they are not, `message` will be said if given."""
+    :param str message: optional message said to non-admin user
+    :param bool reply: use `reply` instead of `say` when true, default to false
+
+    When the triggering user is not an admin, the command is not run, and the
+    bot will say the ``message`` if given. By default, it uses ``bot.say``,
+    but when ``reply`` is true, then it uses ``bot.reply`` instead.
+    """
     def actual_decorator(function):
         @functools.wraps(function)
         def guarded(bot, trigger, *args, **kwargs):
             if not trigger.admin:
                 if message and not callable(message):
-                    bot.say(message)
+                    if reply:
+                        bot.reply(message)
+                    else:
+                        bot.say(message)
             else:
                 return function(bot, trigger, *args, **kwargs)
         return guarded
+
     # Hack to allow decorator without parens
     if callable(message):
         return actual_decorator(message)
+
     return actual_decorator
 
 
@@ -379,7 +396,7 @@ def url(url_rule):
     This decorator takes a regex string that will be matched against URLs in a
     message. The function it decorates, in addition to the bot and trigger,
     must take a third argument ``match``, which is the regular expression match
-    of the url. This should be used rather than the matching in trigger, in
+    of the URL. This should be used rather than the matching in trigger, in
     order to support e.g. the ``.title`` command.
     """
     def actual_decorator(function):
@@ -395,27 +412,39 @@ def url(url_rule):
 class example(object):
     """Decorate a function with an example.
 
-    Add an example attribute into a function and generate a test.
+    Args:
+        msg:
+            (required) The example command as sent by a user on IRC. If it is
+            a prefixed command, the command prefix used in the example must
+            match the default `config.core.help_prefix` for compatibility with
+            the built-in help module.
+        result:
+            What the example command is expected to output. If given, a test is
+            generated using `msg` as input. The test behavior can be modified
+            by the remaining optional arguments.
+        privmsg:
+            If true, the test will behave as if the input was sent to the bot
+            in a private message. If false (default), the test will treat the
+            input as having come from a channel.
+        admin:
+            Whether to treat the test message as having been sent by a bot
+            admin (`trigger.admin == True`).
+        owner:
+            Whether to treat the test message as having been sent by the bot's
+            owner (`trigger.owner == True`).
+        repeat:
+            Integer number of times to repeat the test. Useful for commands
+            that return random results.
+        re:
+            If true, `result` is parsed as a regular expression. Also useful
+            for commands that return random results, or that call an external
+            API that doesn't always return the same value.
+        ignore:
+            List of outputs to ignore. Strings in this list are always
+            interpreted as regular expressions.
     """
-    # TODO dat doc doe >_<
     def __init__(self, msg, result=None, privmsg=False, admin=False,
                  owner=False, repeat=1, re=False, ignore=None):
-        """Accepts arguments for the decorator.
-
-        Args:
-            msg - The example message to give to the function as input.
-            result - Resulting output from calling the function with msg.
-            privmsg - If true, make the message appear to have sent in a
-                private message to the bot. If false, make it appear to have
-                come from a channel.
-            admin - Bool. Make the message appear to have come from an admin.
-            owner - Bool. Make the message appear to have come from an owner.
-            repeat - How many times to repeat the test. Usefull for tests that
-                return random stuff.
-            re - Bool. If true, result is interpreted as a regular expression.
-            ignore - a list of outputs to ignore.
-
-        """
         # Wrap result into a list for get_example_test
         if isinstance(result, list):
             self.result = result
@@ -441,13 +470,20 @@ class example(object):
         if not hasattr(func, "example"):
             func.example = []
 
-        if self.result:
+        import sys
+
+        # only inject test-related stuff if we're running tests
+        # see https://stackoverflow.com/a/44595269/5991
+        if 'pytest' in sys.modules and self.result:
             test = sopel.test_tools.get_example_test(
                 func, self.msg, self.result, self.privmsg, self.admin,
                 self.owner, self.repeat, self.use_re, self.ignore
             )
             sopel.test_tools.insert_into_module(
                 test, func.__module__, func.__name__, 'test_example'
+            )
+            sopel.test_tools.insert_into_module(
+                sopel.test_tools.get_disable_setup(), func.__module__, func.__name__, 'disable_setup'
             )
 
         record = {

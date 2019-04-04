@@ -8,7 +8,7 @@ Copyright 2013, Ari Koivula <ari@koivu.la>
 
 Licensed under the Eiffel Forum License 2.
 
-http://sopel.chat
+https://sopel.chat
 """
 from __future__ import unicode_literals, absolute_import, print_function, division
 
@@ -23,9 +23,16 @@ class AdminSection(StaticSection):
     """Auto re-join on kick"""
     auto_accept_invite = ValidatedAttribute('auto_accept_invite', bool,
                                             default=True)
+    """Auto-join channels when invited"""
 
 
 def configure(config):
+    """
+    | name | example | purpose |
+    | ---- | ------- | ------- |
+    | hold\\_ground | False | Auto-rejoin the channel after being kicked. |
+    | auto\\_accept\\_invite | True | Auto-join channels when invited. |
+    """
     config.define_section('admin', AdminSection)
     config.admin.configure_setting('hold_ground',
                                    "Automatically re-join after being kicked?")
@@ -37,6 +44,50 @@ def setup(bot):
     bot.config.define_section('admin', AdminSection)
 
 
+def _get_config_channels(channels):
+    """List"""
+    for channel_info in channels:
+        if ' ' in channel_info:
+            yield channel_info.split(' ', 1)
+        else:
+            yield (channel_info, None)
+
+
+def _set_config_channels(bot, channels):
+    bot.config.core.channels = [
+        ' '.join([part for part in items if part])
+        for items in channels.items()
+    ]
+    bot.config.save()
+
+
+def _join(bot, channel, key=None, save=True):
+    if not channel:
+        return
+
+    if not key:
+        bot.join(channel)
+    else:
+        bot.join(channel, key)
+
+    if save:
+        channels = dict(_get_config_channels(bot.config.core.channels))
+        # save only if channel is new or key has been changed
+        if channel not in channels or channels[channel] != key:
+            channels[channel] = key
+            _set_config_channels(bot, channels)
+
+
+def _part(bot, channel, msg=None, save=True):
+    bot.part(channel, msg or None)
+
+    if save:
+        channels = dict(_get_config_channels(bot.config.core.channels))
+        if channel in channels:
+            del channels[channel]
+            _set_config_channels(bot, channels)
+
+
 @sopel.module.require_privmsg
 @sopel.module.require_admin
 @sopel.module.commands('join')
@@ -45,12 +96,22 @@ def setup(bot):
 def join(bot, trigger):
     """Join the specified channel. This is an admin-only command."""
     channel, key = trigger.group(3), trigger.group(4)
-    if not channel:
-        return
-    elif not key:
-        bot.join(channel)
-    else:
-        bot.join(channel, key)
+    _join(bot, channel, key)
+
+
+@sopel.module.require_privmsg
+@sopel.module.require_admin
+@sopel.module.commands('tmpjoin')
+@sopel.module.priority('low')
+@sopel.module.example('.tmpjoin #example or .tmpjoin #example key')
+def temporary_join(bot, trigger):
+    """Like ``join``, without saving. This is an admin-only command.
+
+    Unlike the ``join`` command, ``tmpjoin`` won't remember the channel upon
+    restarting the bot.
+    """
+    channel, key = trigger.group(3), trigger.group(4)
+    _join(bot, channel, key, save=False)
 
 
 @sopel.module.require_privmsg
@@ -61,10 +122,35 @@ def join(bot, trigger):
 def part(bot, trigger):
     """Part the specified channel. This is an admin-only command."""
     channel, _sep, part_msg = trigger.group(2).partition(' ')
-    if part_msg:
-        bot.part(channel, part_msg)
-    else:
-        bot.part(channel)
+    _part(bot, channel, part_msg)
+
+
+@sopel.module.require_privmsg
+@sopel.module.require_admin
+@sopel.module.commands('tmppart')
+@sopel.module.priority('low')
+@sopel.module.example('.tmppart #example')
+def temporary_part(bot, trigger):
+    """Like ``part``, without saving. This is an admin-only command.
+
+    Unlike the ``part`` command, ``tmppart`` will rejoin the channel upon
+    restarting the bot.
+    """
+    channel, _sep, part_msg = trigger.group(2).partition(' ')
+    _part(bot, channel, part_msg, save=False)
+
+
+@sopel.module.require_privmsg
+@sopel.module.require_owner
+@sopel.module.commands('restart')
+@sopel.module.priority('low')
+def restart(bot, trigger):
+    """Restart the bot. This is an owner-only command."""
+    quit_message = trigger.group(2)
+    if not quit_message:
+        quit_message = 'Restart on command from %s' % trigger.nick
+
+    bot.restart(quit_message)
 
 
 @sopel.module.require_privmsg
@@ -87,8 +173,8 @@ def quit(bot, trigger):
 @sopel.module.example('.msg #YourPants Does anyone else smell neurotoxin?')
 def msg(bot, trigger):
     """
-    Send a message to a given channel or nick. Can only be done in privmsg by an
-    admin.
+    Send a message to a given channel or nick. Can only be done in privmsg by
+    an admin.
     """
     if trigger.group(2) is None:
         return
@@ -107,8 +193,8 @@ def msg(bot, trigger):
 @sopel.module.priority('low')
 def me(bot, trigger):
     """
-    Send an ACTION (/me) to a given channel or nick. Can only be done in privmsg
-    by an admin.
+    Send an ACTION (/me) to a given channel or nick. Can only be done in
+    privmsg by an admin.
     """
     if trigger.group(2) is None:
         return
@@ -127,7 +213,7 @@ def me(bot, trigger):
 @sopel.module.priority('low')
 def invite_join(bot, trigger):
     """
-    Join a channel sopel is invited to, if the inviter is an admin.
+    Join a channel Sopel is invited to, if the inviter is an admin.
     """
     if trigger.admin or bot.config.admin.auto_accept_invite:
         bot.join(trigger.args[1])
@@ -139,10 +225,10 @@ def invite_join(bot, trigger):
 @sopel.module.priority('low')
 def hold_ground(bot, trigger):
     """
-    This function monitors all kicks across all channels sopel is in. If it
+    This function monitors all kicks across all channels Sopel is in. If it
     detects that it is the one kicked it'll automatically join that channel.
 
-    WARNING: This may not be needed and could cause problems if sopel becomes
+    WARNING: This may not be needed and could cause problems if Sopel becomes
     annoying. Please use this with caution.
     """
     if bot.config.admin.hold_ground:
@@ -166,7 +252,7 @@ def mode(bot, trigger):
 @sopel.module.commands('set')
 @sopel.module.example('.set core.owner Me')
 def set_config(bot, trigger):
-    """See and modify values of sopels config object.
+    """See and modify values of Sopel's config object.
 
     Trigger args:
         arg1 - section and option, in the form "section.option"
@@ -191,9 +277,13 @@ def set_config(bot, trigger):
         bot.say('[{}] section has no option {}.'.format(section_name, option))
         return
 
+    delim = trigger.group(2).find(' ')
+    # Skip preceding whitespaces, if any.
+    while delim > 0 and delim < len(trigger.group(2)) and trigger.group(2)[delim] == ' ':
+        delim = delim + 1
+
     # Display current value if no value is given.
-    value = trigger.group(4)
-    if not value:
+    if delim == -1 or delim == len(trigger.group(2)):
         if not static_sec and bot.config.parser.has_option(section, option):
             bot.reply("Option %s.%s does not exist." % (section_name, option))
             return
@@ -207,6 +297,7 @@ def set_config(bot, trigger):
         return
 
     # Otherwise, set the value to one given as argument 2.
+    value = trigger.group(2)[delim:]
     if static_sec:
         descriptor = getattr(section.__class__, option)
         try:
@@ -225,5 +316,5 @@ def set_config(bot, trigger):
 @sopel.module.commands('save')
 @sopel.module.example('.save')
 def save_config(bot, trigger):
-    """Save state of sopels config object to the configuration file."""
+    """Save state of Sopel's config object to the configuration file."""
     bot.config.save()

@@ -94,7 +94,7 @@ class Sopel(irc.Bot):
         """A dictionary of channels to their users and privilege levels
 
         The value associated with each channel is a dictionary of
-        :class:`sopel.tools.Identifier`\s to
+        :class:`sopel.tools.Identifier`\\s to
         a bitwise integer value, determined by combining the appropriate
         constants from :mod:`sopel.module`.
 
@@ -126,6 +126,9 @@ class Sopel(irc.Bot):
         A thread-safe dict for storage of runtime data to be shared between
         modules. See :class:`sopel.tools.Sopel.SopelMemory`
         """
+
+        self.shutdown_methods = []
+        """List of methods to call on shutdown"""
 
         self.scheduler = sopel.tools.jobs.JobScheduler(self)
         self.scheduler.start()
@@ -217,15 +220,20 @@ class Sopel(irc.Bot):
             # TODO this should somehow find the right job to remove, rather than
             # clearing the entire queue. Issue #831
             self.scheduler.clear_jobs()
-        if (getattr(obj, '__name__', None) == 'shutdown'
-                and obj in self.shutdown_methods):
+        if (getattr(obj, '__name__', None) == 'shutdown' and
+                    obj in self.shutdown_methods):
             self.shutdown_methods.remove(obj)
 
     def register(self, callables, jobs, shutdowns, urls):
-        self.shutdown_methods = shutdowns
+        # Append module's shutdown function to the bot's list of functions to
+        # call on shutdown
+        self.shutdown_methods += shutdowns
         for callbl in callables:
-            for rule in callbl.rule:
-                self._callables[callbl.priority][rule].append(callbl)
+            if hasattr(callbl, 'rule'):
+                for rule in callbl.rule:
+                    self._callables[callbl.priority][rule].append(callbl)
+            else:
+                self._callables[callbl.priority][re.compile('.*')].append(callbl)
             if hasattr(callbl, 'commands'):
                 module_name = callbl.__module__.rsplit('.', 1)[-1]
                 # TODO doc and make decorator for this. Not sure if this is how
@@ -239,10 +247,8 @@ class Sopel(irc.Bot):
                 job = sopel.tools.jobs.Job(interval, func)
                 self.scheduler.add_job(job)
 
-        if not self.memory.contains('url_callbacks'):
-            self.memory['url_callbacks'] = tools.SopelMemory()
         for func in urls:
-            self.memory['url_callbacks'][func.url_regex] = func
+            self.register_url_callback(func.url_regex, func)
 
     def part(self, channel, msg=None):
         """Part a channel."""
@@ -282,27 +288,15 @@ class Sopel(irc.Bot):
         message will contain the entire remainder, which may be truncated by
         the server.
         """
-        # We're arbitrarily saying that the max is 400 bytes of text when
-        # messages will be split. Otherwise, we'd have to acocunt for the bot's
-        # hostmask, which is hard.
-        max_text_length = 400
-        # Encode to bytes, for propper length calculation
-        if isinstance(text, unicode):
-            encoded_text = text.encode('utf-8')
-        else:
-            encoded_text = text
         excess = ''
-        if max_messages > 1 and len(encoded_text) > max_text_length:
-            last_space = encoded_text.rfind(' '.encode('utf-8'), 0, max_text_length)
-            if last_space == -1:
-                excess = encoded_text[max_text_length:]
-                encoded_text = encoded_text[:max_text_length]
-            else:
-                excess = encoded_text[last_space + 1:]
-                encoded_text = encoded_text[:last_space]
-        # We'll then send the excess at the end
-        # Back to unicode again, so we don't screw things up later.
-        text = encoded_text.decode('utf-8')
+        if not isinstance(text, unicode):
+            # Make sure we are dealing with unicode string
+            text = text.decode('utf-8')
+
+        if max_messages > 1:
+            # Manage multi-line only when needed
+            text, excess = tools.get_sendable_message(text)
+
         try:
             self.sending.acquire()
 
@@ -468,7 +462,7 @@ class Sopel(irc.Bot):
 
         try:
             exit_code = func(sopel, trigger)
-        except Exception:
+        except Exception:  # TODO: Be specific
             exit_code = None
             self.error(trigger)
 
@@ -513,9 +507,15 @@ class Sopel(irc.Bot):
 
                     if event not in func.event:
                         continue
-                    if (hasattr(func, 'intents') and
-                            trigger.tags.get('intent') not in func.intents):
-                        continue
+                    if hasattr(func, 'intents'):
+                        if not trigger.tags.get('intent'):
+                            continue
+                        match = False
+                        for intent in func.intents:
+                            if intent.match(trigger.tags.get('intent')):
+                                match = True
+                        if not match:
+                            continue
                     if func.thread:
                         targs = (func, wrapper, trigger)
                         t = threading.Thread(target=self.call, args=targs)
@@ -578,6 +578,8 @@ class Sopel(irc.Bot):
                         shutdown_method.__module__, e
                     )
                 )
+        # Avoid calling shutdown methods if we already have.
+        self.shutdown_methods = []
 
     def cap_req(self, module_name, capability, arg=None, failure_callback=None,
                 success_callback=None):
@@ -646,3 +648,97 @@ class Sopel(irc.Bot):
             entry.append(_CapReq(prefix, module_name, failure_callback, arg,
                                  success_callback))
             self._cap_reqs[cap] = entry
+
+    def register_url_callback(self, pattern, callback):
+        """Register a ``callback`` for URLs matching the regex ``pattern``
+
+        :param pattern: compiled regex pattern to register
+        :param callback: callable object to handle matching URLs
+
+        .. versionadded:: 7.0
+
+            This method replaces manual management of ``url_callbacks`` in
+            Sopel's plugins, so instead of doing this in ``setup()``::
+
+                if not bot.memory.contains('url_callbacks'):
+                    bot.memory['url_callbacks'] = tools.SopelMemory()
+
+                regex = re.compile(r'http://example.com/path/.*')
+                bot.memory['url_callbacks'][regex] = callback
+
+            use this much more concise pattern::
+
+                regex = re.compile(r'http://example.com/path/.*')
+                bot.register_url_callback(regex, callback)
+
+        """
+        if not self.memory.contains('url_callbacks'):
+            self.memory['url_callbacks'] = tools.SopelMemory()
+
+        if isinstance(pattern, basestring):
+            pattern = re.compile(pattern)
+
+        self.memory['url_callbacks'][pattern] = callback
+
+    def unregister_url_callback(self, pattern):
+        """Unregister the callback for URLs matching the regex ``pattern``
+
+        :param pattern: compiled regex pattern to unregister callback
+
+        .. versionadded:: 7.0
+
+            This method replaces manual management of ``url_callbacks`` in
+            Sopel's plugins, so instead of doing this in ``shutdown()``::
+
+                regex = re.compile(r'http://example.com/path/.*')
+                try:
+                    del bot.memory['url_callbacks'][regex]
+                except KeyError:
+                    pass
+
+            use this much more concise pattern::
+
+                regex = re.compile(r'http://example.com/path/.*')
+                bot.unregister_url_callback(regex)
+
+        """
+        if not self.memory.contains('url_callbacks'):
+            # nothing to unregister
+            return
+
+        if isinstance(pattern, basestring):
+            pattern = re.compile(pattern)
+
+        try:
+            del self.memory['url_callbacks'][pattern]
+        except KeyError:
+            pass
+
+    def search_url_callbacks(self, url):
+        """Yield callbacks found for ``url`` matching their regex pattern
+
+        :param str url: URL found in a trigger
+        :return: yield 2-value tuples of ``(callback, match)``
+
+        For each pattern that matches the ``url`` parameter, it yields a
+        2-value tuple of ``(callable, match)`` for that pattern.
+
+        The ``callable`` is the one registered with
+        :meth:`register_url_callback`, and the ``match`` is the result of
+        the regex pattern's ``search`` method.
+
+        .. versionadded:: 7.0
+
+        .. seealso::
+
+            The Python documentation for the `re.search`__ function and
+            the `match object`__.
+
+        .. __: https://docs.python.org/3.6/library/re.html#re.search
+        .. __: https://docs.python.org/3.6/library/re.html#match-objects
+
+        """
+        for regex, function in tools.iteritems(self.memory['url_callbacks']):
+            match = regex.search(url)
+            if match:
+                yield function, match

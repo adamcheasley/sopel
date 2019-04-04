@@ -19,7 +19,7 @@ class User(object):
         self.channels = {}
         """The channels the user is in.
 
-        This maps channel name ``Identifier``\s to ``Channel`` objects."""
+        This maps channel name ``Identifier``\\s to ``Channel`` objects."""
         self.account = None
         """The IRC services account of the user.
 
@@ -52,7 +52,7 @@ class Channel(object):
         self.users = {}
         """The users in the channel.
 
-        This maps username ``Identifier``\s to channel objects."""
+        This maps username ``Identifier``\\s to channel objects."""
         self.privileges = {}
         """The permissions of the users in the channel.
 
@@ -64,18 +64,19 @@ class Channel(object):
     def clear_user(self, nick):
         user = self.users.pop(nick, None)
         self.privileges.pop(nick, None)
-        if user != None:
+        if user is not None:
             user.channels.pop(self.name, None)
 
-    def add_user(self, user):
+    def add_user(self, user, privs=0):
         assert isinstance(user, User)
         self.users[user.nick] = user
-        self.privileges[user.nick] = 0
+        self.privileges[user.nick] = privs
         user.channels[self.name] = self
 
     def rename_user(self, old, new):
         if old in self.users:
             self.users[new] = self.users.pop(old)
+            self.users[new].nick = new
         if old in self.privileges:
             self.privileges[new] = self.privileges.pop(old)
 

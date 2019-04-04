@@ -3,16 +3,14 @@
 # Licensed under the Eiffel Forum License 2
 from __future__ import unicode_literals, absolute_import, print_function, division
 
-import json
-import xmltodict
 import re
 
-from sopel import web
+from requests import get
 from sopel.module import commands, example, NOLIMIT
 
 # The Canadian central bank has better exchange rate data than the Fed, the
 # Bank of England, or the European Central Bank. Who knew?
-base_url = 'http://www.bankofcanada.ca/stats/assets/rates_rss/noon/en_{}.xml'
+base_url = 'https://www.bankofcanada.ca/valet/observations/FX{}CAD/json'
 regex = re.compile(r'''
     (\d+(?:\.\d+)?)        # Decimal number
     \s*([a-zA-Z]{3})       # 3-letter currency code
@@ -26,23 +24,17 @@ def get_rate(code):
     if code == 'CAD':
         return 1, 'Canadian Dollar'
     elif code == 'BTC':
-        rates = json.loads(web.get('https://api.bitcoinaverage.com/ticker/all'))
-        return 1 / rates['CAD']['24h_avg'], 'Bitcoin—24hr average'
+        btc_rate = get('https://apiv2.bitcoinaverage.com/indices/global/ticker/BTCCAD')
+        rates = btc_rate.json()
+        return 1 / rates['averages']['day'], 'Bitcoin—24hr average'
 
-    data, headers = web.get(base_url.format(code), dont_decode=True, return_headers=True)
-    if headers['_http_status'] == 404:
-        return False, False
-    namespaces = {
-        'http://www.cbwiki.net/wiki/index.php/Specification_1.1': 'cb',
-        'http://purl.org/rss/1.0/': None,
-        'http://www.w3.org/1999/02/22-rdf-syntax-ns#': 'rdf'
-    }
-    xml = xmltodict.parse(data, process_namespaces=True, namespaces=namespaces).get('rdf:RDF')
-    namestring = xml.get('channel').get('title').get('#text')
-    name = namestring[len('Bank of Canada noon rate: '):]
-    name = re.sub(r'\s*\(noon\)\s*', '', name)
-    rate = xml.get('item').get('cb:statistics').get('cb:exchangeRate').get('cb:value').get('#text')
-    return float(rate), name
+    data = get(base_url.format(code))
+    name = data.json()['seriesDetail']['FX{}CAD'.format(code)]['description']
+    name = name.split(" to Canadian")[0]
+    json = data.json()['observations']
+    for element in reversed(json):
+        if 'v' in element['FX{}CAD'.format(code)]:
+            return 1 / float(element['FX{}CAD'.format(code)]['v']), name
 
 
 @commands('cur', 'currency', 'exchange')
@@ -60,8 +52,10 @@ def exchange(bot, trigger):
     amount, of, to = match.groups()
     try:
         amount = float(amount)
-    except:
+    except ValueError:
         bot.reply("Sorry, I didn't understand the input.")
+    except OverflowError:
+        bot.reply("Sorry, input amount was out of range.")
     display(bot, amount, of, to)
 
 
@@ -77,19 +71,19 @@ def display(bot, amount, of, to):
         if not to_name:
             bot.reply("Unknown currency: %s" % to)
             return
-    except Exception:
+    except Exception:  # TODO: Be specific
         bot.reply("Something went wrong while I was getting the exchange rate.")
         return NOLIMIT
 
     result = amount / of_rate * to_rate
-    bot.say("{} {} ({}) = {} {} ({})".format(amount, of.upper(), of_name,
+    bot.say("{:.2f} {} ({}) = {:.2f} {} ({})".format(amount, of.upper(), of_name,
                                              result, to.upper(), to_name))
 
 
 @commands('btc', 'bitcoin')
 @example('.btc 20 EUR')
 def bitcoin(bot, trigger):
-    #if 2 args, 1st is number and 2nd is currency. If 1 arg, it's either the number or the currency.
+    # if 2 args, 1st is number and 2nd is currency. If 1 arg, it's either the number or the currency.
     to = trigger.group(4)
     amount = trigger.group(3)
     if not to:
@@ -98,8 +92,11 @@ def bitcoin(bot, trigger):
 
     try:
         amount = float(amount)
-    except:
+    except ValueError:
         bot.reply("Sorry, I didn't understand the input.")
+        return NOLIMIT
+    except OverflowError:
+        bot.reply("Sorry, input amount was out of range.")
         return NOLIMIT
 
     display(bot, amount, 'BTC', to)

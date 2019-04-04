@@ -1,7 +1,7 @@
 [Unit]
 Description=Sopel IRC bot
-Documentation=http://sopel.chat/
-After=network.target
+Documentation=https://sopel.chat/
+After=network-online.target
 
 [Service]
 Type=simple
